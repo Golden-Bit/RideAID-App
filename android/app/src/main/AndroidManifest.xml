@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Permesso per utilizzare l'NFC -->
+    <uses-permission android:name="android.permission.NFC" />
+
+    <!-- Dichiarazione dell'uso dell'hardware NFC (imposta android:required="true" se l'NFC è indispensabile) -->
+    <uses-feature android:name="android.hardware.nfc" android:required="true" />
+
     <application
         android:label="ride_aid_app"
         android:name="${applicationName}"

@@ -1,389 +1,146 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:ride_aid_app/info_page.dart';
-import 'package:ride_aid_app/riders_list.dart';
+import 'package:flutter_nfc_kit/flutter_nfc_kit.dart';
+import 'package:ndef/ndef.dart';
 
-// Aggiungiamo la SplashPage come prima pagina mostrata
 void main() {
-  runApp(const RaiderAidApp());
+  runApp(const NFCWriterApp());
 }
 
-class RaiderAidApp extends StatelessWidget {
-  const RaiderAidApp({Key? key}) : super(key: key);
+class NFCWriterApp extends StatelessWidget {
+  const NFCWriterApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      // Impostiamo la SplashPage come home iniziale
-      home: const SplashPage(),
+      home: const NFCWriterScreen(),
     );
   }
 }
 
-/// SplashPage: mostra il logo AIMC al centro, sfondo bianco.
-/// Dopo 2 secondi, passa automaticamente alla RaiderAidHome.
-class SplashPage extends StatefulWidget {
-  const SplashPage({Key? key}) : super(key: key);
+class NFCWriterScreen extends StatefulWidget {
+  const NFCWriterScreen({Key? key}) : super(key: key);
 
   @override
-  State<SplashPage> createState() => _SplashPageState();
+  State<NFCWriterScreen> createState() => _NFCWriterScreenState();
 }
 
-class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<Offset> _slideAnimation;
-  late Animation<double> _fadeAnimation;
+class _NFCWriterScreenState extends State<NFCWriterScreen> {
+  final TextEditingController _textController = TextEditingController();
+  bool isWriting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    // Durata totale per animazione di ingresso e uscita
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
-    
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1), // parte dal basso
-      end: const Offset(0, 0),   // posizione finale: centro
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-    
-    _fadeAnimation = Tween<double>(
-      begin: 0,  // inizia trasparente
-      end: 1,    // diventa opaco
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
-    
-    // Avvia animazione di ingresso
-    _controller.forward();
-    
-    // Dopo 2 secondi, avvia l'animazione di uscita e poi naviga
-    Future.delayed(const Duration(seconds: 2), () async {
-      await _controller.reverse(); // Animazione inversa per sfumare in uscita
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const RaiderAidHome()),
-      );
+  Future<void> _writeToNFC() async {
+    String textToWrite = _textController.text.trim();
+
+    if (textToWrite.isEmpty) {
+      _showDialog("Error", "Please enter some text to write.");
+      return;
+    }
+
+    setState(() {
+      isWriting = true;
     });
+
+    try {
+      // Attiva la scansione NFC
+      var tag = await FlutterNfcKit.poll(timeout: Duration(seconds: 10));
+
+      if (tag.ndefWritable == false) {
+        throw "This NFC tag is not writable.";
+      }
+
+      // Crea un record NDEF con il testo
+
+      var record = NDEFRecord(
+        //id: [0,0,1] as Uint8List,
+        payload: Uint8List.fromList(_createTextPayload(textToWrite)),
+        type: utf8.encode('T'), // 'T' indica un record di tipo testo
+        tnf: TypeNameFormat.nfcWellKnown,
+      );
+
+      // Scrive il record sul tag NFC
+      await FlutterNfcKit.writeNDEFRecords([record]);
+
+      _showDialog("Success", "Text successfully written to NFC tag!");
+
+    } catch (e) {
+      _showDialog("Error", e.toString());
+    } finally {
+      await FlutterNfcKit.finish();
+      setState(() {
+        isWriting = false;
+      });
+    }
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  // Funzione per creare il payload NDEF Text Record
+  List<int> _createTextPayload(String text) {
+    const String languageCode = 'en'; // Imposta la lingua (es: 'en', 'it')
+    List<int> languageCodeBytes = utf8.encode(languageCode);
+    List<int> textBytes = utf8.encode(text);
+
+    int statusByte = languageCodeBytes.length; // Il primo byte è la lunghezza del codice lingua
+    return [statusByte, ...languageCodeBytes, ...textBytes];
   }
-  
+
+  void _showDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("OK"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        // Applica SlideTransition e FadeTransition al logo
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: FadeTransition(
-            opacity: _fadeAnimation,
-            child: Image.asset(
-              'assets/images/aimc_logo.png', // Percorso del logo
-              width: 200,
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
+      appBar: AppBar(
+        title: const Text("NFC Writer"),
+        backgroundColor: Colors.blueAccent,
       ),
-    );
-  }
-}
-
-
-/// La tua pagina principale rimane invariata,
-//  salvo che non è più l'home diretta ma è richiamata
-//  dalla SplashPage dopo 2 secondi.
-class RaiderAidHome extends StatelessWidget {
-  const RaiderAidHome({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    // Misure e colori di base
-    const Color primaryCircleColor = Color(0xFFE7ECF3); // Cerchio esterno
-    const Color secondaryCircleColor = Color(0xFF0E4DA4); // Cerchio interno
-    const double outerCircleSize = 220;
-    const double innerCircleSize = 140;
-
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              // Barra superiore con le icone a destra
-              Padding(
-                padding: const EdgeInsets.only(top: 16.0, right: 16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    // Icona UTENTE -> apre la lista RiderCardPage
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const RidersCardPage(),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: secondaryCircleColor,
-                            width: 2,
-                          ),
-                        ),
-                        child: Icon(
-                          Icons.person,
-                          color: secondaryCircleColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    // Icona INFO -> Apri InfoPage
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const InfoPage(),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: secondaryCircleColor,
-                            width: 2,
-                          ),
-                        ),
-                        child: Icon(
-                          Icons.info,
-                          color: secondaryCircleColor,
-                        ),
-                      ),
-                    )
-                  ],
-                ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Text(
+              "Enter text to write on NFC tag:",
+              style: TextStyle(fontSize: 18),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _textController,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: "Enter text here...",
               ),
-
-              const SizedBox(height: 24),
-
-              // Titolo principale
-              Text(
-                'Raider AID',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: isWriting ? null : _writeToNFC,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
               ),
-
-              const SizedBox(height: 8),
-
-              // Sottotitolo
-              Text(
-                'The first aid ally',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  color: Colors.black54,
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Testo esplicativo
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                child: Text(
-                  'Hold the device close to the NFC bracelet to access '
-                  'essential first aid information. Every second counts.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.black87,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              // Cerchio esterno + cerchio interno (entrambi cliccabili)
-              GestureDetector(
-                onTap: () {
-                  // Al tap, mostriamo il bottom sheet
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.white,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(20),
-                      ),
-                    ),
-                    builder: (BuildContext context) {
-                      return const _NfcScanningBottomSheet();
-                    },
-                  );
-                },
-                child: Container(
-                  width: outerCircleSize,
-                  height: outerCircleSize,
-                  decoration: BoxDecoration(
-                    color: primaryCircleColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: innerCircleSize,
-                      height: innerCircleSize,
-                      decoration: const BoxDecoration(
-                        color: secondaryCircleColor,
-                        shape: BoxShape.circle,
-                      ),
-                      // Colonna con icona e testo
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.nfc,
-                            color: Colors.white,
-                            size: 32,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Scan NFC',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Spazio finale
-              const SizedBox(height: 40),
-            ],
-          ),
+              child: isWriting
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text("Write NFC"),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-}
-
-/// Widget che costruisce il contenuto del bottom sheet mostrato
-/// quando si clicca su "Scan NFC".
-class _NfcScanningBottomSheet extends StatelessWidget {
-  const _NfcScanningBottomSheet({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    const Color secondaryCircleColor = Color(0xFF0E4DA4);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Piccolo "handle" in alto per indicare che è un modal
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Titolo
-          const Text(
-            'Scan NFC Band',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Stato di scansione
-          const Text(
-            'Still looking...',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.black54,
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Simulazione di un'animazione di scanning con più cerchi concentrici
-          SizedBox(
-            width: 150,
-            height: 150,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: secondaryCircleColor, width: 1.5),
-                  ),
-                ),
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: secondaryCircleColor, width: 1.5),
-                  ),
-                ),
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                    border: Border.all(color: secondaryCircleColor, width: 1.5),
-                  ),
-                  child: const Icon(
-                    Icons.nfc,
-                    color: secondaryCircleColor,
-                    size: 24,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Testo descrittivo
-          const Text(
-            'Try moving NFC Band around to find the NFC reader on your device.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
       ),
     );
   }
